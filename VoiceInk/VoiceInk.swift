@@ -149,7 +149,7 @@ struct VoiceInkApp: App {
                 "dictionary",
                 schema: dictionarySchema,
                 url: dictionaryStoreURL,
-                cloudKitDatabase: .private("iCloud.com.prakashjoshipax.VoiceInk")
+                cloudKitDatabase: .none
             )
 
             // Initialize container

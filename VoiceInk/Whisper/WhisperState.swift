@@ -143,17 +143,15 @@ class WhisperState: NSObject, ObservableObject {
             await recorder.stopRecording()
             if let recordedFile {
                 if !shouldCancelRecording {
-                    let audioAsset = AVURLAsset(url: recordedFile)
-                    let duration = (try? CMTimeGetSeconds(await audioAsset.load(.duration))) ?? 0.0
-
+                    // Skip duration calculation here - do it later to avoid blocking
                     let transcription = Transcription(
                         text: "",
-                        duration: duration,
+                        duration: 0,
                         audioFileURL: recordedFile.absoluteString,
                         transcriptionStatus: .pending
                     )
                     modelContext.insert(transcription)
-                    try? modelContext.save()
+                    // Defer save to after transcription for speed
                     NotificationCenter.default.post(name: .transcriptionCreated, object: transcription)
 
                     await transcribeAudio(on: transcription)
@@ -322,21 +320,28 @@ class WhisperState: NSObject, ObservableObject {
             text = WordReplacementService.shared.applyReplacements(to: text, using: modelContext)
             logger.notice("📝 WordReplacement: \(text, privacy: .public)")
 
-            let audioAsset = AVURLAsset(url: url)
-            let actualDuration = (try? CMTimeGetSeconds(await audioAsset.load(.duration))) ?? 0.0
+            // Calculate duration in background - don't block pasting
+            Task.detached {
+                let audioAsset = AVURLAsset(url: url)
+                let actualDuration = (try? CMTimeGetSeconds(await audioAsset.load(.duration))) ?? 0.0
+                await MainActor.run {
+                    transcription.duration = actualDuration
+                }
+            }
             
             transcription.text = text
-            transcription.duration = actualDuration
             transcription.transcriptionModelName = model.displayName
             transcription.transcriptionDuration = transcriptionDuration
             transcription.powerModeName = powerModeName
             transcription.powerModeEmoji = powerModeEmoji
             finalPastedText = text
             
+            // Run prompt detection in parallel with enhancement check
+            var detectionTask: Task<PromptDetectionService.PromptDetectionResult?, Never>?
             if let enhancementService = enhancementService, enhancementService.isConfigured {
-                let detectionResult = await promptDetectionService.analyzeText(text, with: enhancementService)
-                promptDetectionResult = detectionResult
-                await promptDetectionService.applyDetectionResult(detectionResult, to: enhancementService)
+                detectionTask = Task {
+                    return await promptDetectionService.analyzeText(text, with: enhancementService)
+                }
             }
 
             if let enhancementService = enhancementService,
@@ -345,6 +350,15 @@ class WhisperState: NSObject, ObservableObject {
                 if await checkCancellationAndCleanup() { return }
 
                 await MainActor.run { self.recordingState = .enhancing }
+                
+                // Wait for detection result
+                if let task = detectionTask {
+                    promptDetectionResult = await task.value
+                    if let result = promptDetectionResult {
+                        await promptDetectionService.applyDetectionResult(result, to: enhancementService)
+                    }
+                }
+                
                 let textForAI = promptDetectionResult?.processedText ?? text
                 
                 do {
@@ -362,6 +376,8 @@ class WhisperState: NSObject, ObservableObject {
                   
                     if await checkCancellationAndCleanup() { return }
                 }
+            } else if let task = detectionTask {
+                promptDetectionResult = await task.value
             }
 
             transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
@@ -392,13 +408,13 @@ class WhisperState: NSObject, ObservableObject {
                     """
             }
 
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            DispatchQueue.main.async {
                 CursorPaster.pasteAtCursor(textToPaste + " ")
 
                 let powerMode = PowerModeManager.shared
                 if let activeConfig = powerMode.currentActiveConfiguration, activeConfig.isAutoSendEnabled {
                     // Slight delay to ensure the paste operation completes
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         CursorPaster.pressEnter()
                     }
                 }

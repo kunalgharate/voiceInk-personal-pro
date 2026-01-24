@@ -99,3 +99,12 @@ Icon
 Network Trash Folder
 Temporary Items
 .apdisk 
+
+
+# VoiceInk specific ignores
+VoiceInk-Dependencies/
+VoiceInk-Offline.app/
+VoiceInk-Offline-Premium.dmg
+*.dmg
+*.profraw
+dist/
