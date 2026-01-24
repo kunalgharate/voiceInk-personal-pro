@@ -2,8 +2,8 @@ import Foundation
 import FluidAudio
 import os
 
-/// VAD implementation using FluidAudio's VadManager (current VoiceInk VAD)
-final class FluidAudioVAD: VADProvider {
+/// VAD implementation using FluidAudio's VadManager
+actor FluidAudioVAD: VADProvider {
     private var vadManager: VadManager?
     private let config: VADConfig
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "FluidAudioVAD")
@@ -27,13 +27,14 @@ final class FluidAudioVAD: VADProvider {
     }
     
     func containsSpeech(in samples: [Float]) async -> Bool {
+        guard !samples.isEmpty else { return false }
         do {
             try await ensureInitialized()
             guard let vad = vadManager else { return true }
             let segments = try await vad.segmentSpeechAudio(samples)
             return !segments.isEmpty
         } catch {
-            return true // Assume speech on error
+            return true
         }
     }
     
@@ -41,12 +42,8 @@ final class FluidAudioVAD: VADProvider {
         try await ensureInitialized()
         guard let vad = vadManager else { return [(0, samples.count)] }
         
-        // FluidAudio returns actual samples, not ranges
-        // For now, return full range if speech detected
         let segments = try await vad.segmentSpeechAudio(samples)
-        if segments.isEmpty {
-            return []
-        }
+        if segments.isEmpty { return [] }
         return [(0, samples.count)]
     }
 }

@@ -33,10 +33,10 @@ final class SileroVAD: VADProvider {
     }
     
     func containsSpeech(in samples: [Float]) async -> Bool {
+        guard !samples.isEmpty else { return false }
         // Simple energy-based detection as placeholder
-        // Replace with actual Silero model inference
         let energy = samples.reduce(0) { $0 + $1 * $1 } / Float(samples.count)
-        return energy > 0.001 // Threshold for speech
+        return energy > 0.001
     }
     
     func getSpeechSegments(from samples: [Float]) async throws -> [(start: Int, end: Int)] {

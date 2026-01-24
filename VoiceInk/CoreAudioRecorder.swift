@@ -50,6 +50,9 @@ final class CoreAudioRecorder {
     
     // Streaming callback for real-time audio processing
     var streamingCallback: (([Float]) -> Void)?
+    
+    // Pre-allocated buffer for streaming callback (avoid malloc in real-time)
+    private var streamingBuffer: [Float] = []
 
     // MARK: - Initialization
 
@@ -702,9 +705,15 @@ final class CoreAudioRecorder {
         
         // Call streaming callback with Float samples for real-time transcription
         if let callback = streamingCallback {
-            // Convert Int16 to Float directly without intermediate array allocation
-            let floatSamples = (0..<Int(outputFrameCount)).map { Float(outputBuffer[$0]) / 32767.0 }
-            callback(floatSamples)
+            let count = Int(outputFrameCount)
+            // Reuse buffer if possible, resize only when needed
+            if streamingBuffer.count < count {
+                streamingBuffer = [Float](repeating: 0, count: count)
+            }
+            for i in 0..<count {
+                streamingBuffer[i] = Float(outputBuffer[i]) / 32767.0
+            }
+            callback(Array(streamingBuffer.prefix(count)))
         }
     }
 

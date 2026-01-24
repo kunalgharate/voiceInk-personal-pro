@@ -12,6 +12,7 @@ final class StreamingTranscriptionManager: ObservableObject {
     private var accumulatedSamples: [Float] = []
     private let sampleRate: Double = 16000
     private let maxSamples = 16000 * 60 // Max 60 seconds to prevent memory issues
+    private let maxEarlySamples = 16000 * 10 // Max 10 seconds for early buffer
     
     // Early samples buffer (before streaming officially starts)
     private var earlySamples: [Float] = []
@@ -128,7 +129,7 @@ final class StreamingTranscriptionManager: ObservableObject {
         // Apply VAD for recordings longer than 5 seconds
         var samplesToTranscribe = accumulatedSamples
         if durationSeconds >= 5.0 {
-            _ = VADManager.shared.getProvider(type: .fluidAudio)
+            _ = await VADManager.shared.getProvider(type: .fluidAudio)
             samplesToTranscribe = await VADManager.shared.filterSilence(from: accumulatedSamples, minDuration: 5.0)
             let filteredDuration = Double(samplesToTranscribe.count) / sampleRate
             if filteredDuration < durationSeconds {
@@ -154,14 +155,20 @@ final class StreamingTranscriptionManager: ObservableObject {
         
         Task { @MainActor in
             if isStreaming {
-                // Prevent unbounded growth
                 if accumulatedSamples.count < maxSamples {
                     accumulatedSamples.append(contentsOf: samples)
                 }
-            } else {
+            } else if earlySamples.count < maxEarlySamples {
                 earlySamples.append(contentsOf: samples)
             }
         }
+    }
+    
+    /// Stop collecting (cleanup on recording failure)
+    func stopCollecting() {
+        isCollecting = false
+        earlySamples = []
+        accumulatedSamples = []
     }
     
     /// Background streaming loop

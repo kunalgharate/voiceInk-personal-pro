@@ -180,6 +180,7 @@ class Recorder: NSObject, ObservableObject {
 
         } catch {
             logger.error("Failed to create audio recorder: \(error.localizedDescription)")
+            await StreamingTranscriptionManager.shared.stopCollecting()
             stopRecording()
             throw RecorderError.couldNotStartRecording
         }

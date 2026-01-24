@@ -2,8 +2,8 @@ import Foundation
 import os
 
 /// VAD Manager - Central access point for Voice Activity Detection
-/// Allows switching between different VAD implementations
-final class VADManager {
+/// Thread-safe actor for switching between different VAD implementations
+actor VADManager {
     static let shared = VADManager()
     
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "VADManager")
@@ -43,7 +43,6 @@ final class VADManager {
     func filterSilence(from samples: [Float], minDuration: Double = 3.0) async -> [Float] {
         let durationSeconds = Double(samples.count) / 16000.0
         
-        // Skip VAD for short recordings
         guard durationSeconds >= minDuration else {
             return samples
         }
@@ -55,17 +54,13 @@ final class VADManager {
         do {
             let filtered = try await provider.filterSilence(from: samples)
             let removedSeconds = durationSeconds - Double(filtered.count) / 16000.0
-            logger.notice("🎙️ VAD removed \(String(format: "%.1f", removedSeconds))s of silence")
+            if removedSeconds > 0.1 {
+                logger.notice("🎙️ VAD removed \(String(format: "%.1f", removedSeconds))s of silence")
+            }
             return filtered
         } catch {
             logger.error("🎙️ VAD failed: \(error.localizedDescription)")
             return samples
         }
-    }
-    
-    /// Check if samples contain speech
-    func containsSpeech(in samples: [Float]) async -> Bool {
-        guard let provider = currentProvider else { return true }
-        return await provider.containsSpeech(in: samples)
     }
 }

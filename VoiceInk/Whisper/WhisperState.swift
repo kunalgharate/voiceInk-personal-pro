@@ -276,6 +276,15 @@ class WhisperState: NSObject, ObservableObject {
         }
         finalText = WordReplacementService.shared.applyReplacements(to: finalText, using: modelContext)
         
+        // Calculate duration in background
+        if let urlString = transcription.audioFileURL, let url = URL(string: urlString) {
+            Task.detached {
+                let audioAsset = AVURLAsset(url: url)
+                let actualDuration = (try? CMTimeGetSeconds(await audioAsset.load(.duration))) ?? 0.0
+                await MainActor.run { transcription.duration = actualDuration }
+            }
+        }
+        
         transcription.text = finalText
         transcription.transcriptionModelName = currentTranscriptionModel?.displayName
         transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
