@@ -352,6 +352,33 @@ final class CoreAudioRecorder {
             logger.error("Failed to set input device \(deviceID): \(status)")
             throw CoreAudioRecorderError.failedToSetDevice(status: status)
         }
+        
+        // Set optimal buffer size for low latency (512 frames = ~32ms at 16kHz)
+        setOptimalBufferSize(deviceID: deviceID)
+    }
+    
+    private func setOptimalBufferSize(deviceID: AudioDeviceID) {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyBufferFrameSize,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        
+        // Target 512 frames for low latency
+        var bufferSize: UInt32 = 512
+        let status = AudioObjectSetPropertyData(
+            deviceID,
+            &address,
+            0,
+            nil,
+            UInt32(MemoryLayout<UInt32>.size),
+            &bufferSize
+        )
+        
+        if status == noErr {
+            logger.notice("🎙️ Set buffer size to 512 frames for low latency")
+        }
+        // If setting fails, system will use default - that's okay
     }
 
     private func configureFormats() throws {

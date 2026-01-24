@@ -8,15 +8,19 @@ final class StreamingTranscriptionManager: ObservableObject {
     
     private let logger = Logger(subsystem: "com.prakashjoshipax.voiceink", category: "StreamingTranscription")
     
-    // Accumulated samples for transcription
+    // Accumulated samples for transcription - pre-allocated for performance
     private var accumulatedSamples: [Float] = []
     private let sampleRate: Double = 16000
-    private let maxSamples = 16000 * 60 // Max 60 seconds to prevent memory issues
+    private let maxSamples = 16000 * 60 // Max 60 seconds
     private let maxEarlySamples = 16000 * 10 // Max 10 seconds for early buffer
+    private let minSamples = 2400 // Min 0.15 seconds (lowered to catch "yes", "no", etc.)
     
     // Early samples buffer (before streaming officially starts)
     private var earlySamples: [Float] = []
     private var isCollecting = false
+    
+    // Backpressure handling
+    private var isTranscribing = false
     
     // Streaming state
     @Published var partialTranscript: String = ""
@@ -27,13 +31,18 @@ final class StreamingTranscriptionManager: ObservableObject {
     private var whisperContext: WhisperContext?
     private var parakeetService: ParakeetTranscriptionService?
     
-    private init() {}
+    private init() {
+        // Pre-allocate capacity to avoid reallocations
+        accumulatedSamples.reserveCapacity(maxSamples)
+        earlySamples.reserveCapacity(maxEarlySamples)
+    }
     
     /// Start collecting samples immediately (call when recording starts)
     func startCollecting() {
         isCollecting = true
-        earlySamples = []
-        accumulatedSamples = []
+        isTranscribing = false
+        earlySamples.removeAll(keepingCapacity: true)
+        accumulatedSamples.removeAll(keepingCapacity: true)
         partialTranscript = ""
         logger.notice("🎙️ Started collecting audio samples")
     }
@@ -54,11 +63,9 @@ final class StreamingTranscriptionManager: ObservableObject {
         // Move early samples to accumulated (preserve them!)
         let earlyCount = earlySamples.count
         if earlyCount > 0 {
-            accumulatedSamples = earlySamples
-            earlySamples = []
+            accumulatedSamples.append(contentsOf: earlySamples)
+            earlySamples.removeAll(keepingCapacity: true)
             logger.notice("🎙️ Recovered \(earlyCount) early samples (\(String(format: "%.2f", Double(earlyCount)/16000.0))s)")
-        } else {
-            accumulatedSamples = []
         }
         
         isStreaming = true
@@ -78,32 +85,34 @@ final class StreamingTranscriptionManager: ObservableObject {
     func stopStreaming() async -> String {
         isCollecting = false
         
+        // Cancel and wait for streaming task
+        if let task = streamingTask {
+            task.cancel()
+            _ = await task.result
+            streamingTask = nil
+        }
+        
         // If streaming never started, use early samples
-        if !isStreaming {
-            if !earlySamples.isEmpty {
-                accumulatedSamples = earlySamples
-                earlySamples = []
-            }
-            if accumulatedSamples.isEmpty { return "" }
+        if !isStreaming && !earlySamples.isEmpty {
+            accumulatedSamples.append(contentsOf: earlySamples)
+            earlySamples.removeAll(keepingCapacity: true)
         }
         
         isStreaming = false
-        streamingTask?.cancel()
-        streamingTask = nil
         
         // Include any remaining early samples
         if !earlySamples.isEmpty {
             accumulatedSamples.insert(contentsOf: earlySamples, at: 0)
-            earlySamples = []
+            earlySamples.removeAll(keepingCapacity: true)
         }
         
         let sampleCount = accumulatedSamples.count
         let durationSeconds = Double(sampleCount) / sampleRate
         
-        // Skip if too short (less than 0.3 seconds)
-        guard sampleCount >= 4800 else {
-            logger.notice("🎙️ Recording too short (\(String(format: "%.1f", durationSeconds))s), skipping")
-            accumulatedSamples = []
+        // Skip if too short (0.15 seconds - allows "yes", "no", "ok")
+        guard sampleCount >= minSamples else {
+            logger.notice("🎙️ Recording too short (\(String(format: "%.2f", durationSeconds))s), skipping")
+            accumulatedSamples.removeAll(keepingCapacity: true)
             return ""
         }
         
@@ -122,7 +131,7 @@ final class StreamingTranscriptionManager: ObservableObject {
         
         guard modelReady else {
             logger.error("❌ Model not loaded, cannot transcribe")
-            accumulatedSamples = []
+            accumulatedSamples.removeAll(keepingCapacity: true)
             return ""
         }
         
@@ -131,16 +140,14 @@ final class StreamingTranscriptionManager: ObservableObject {
         if durationSeconds >= 5.0 {
             _ = await VADManager.shared.getProvider(type: .fluidAudio)
             samplesToTranscribe = await VADManager.shared.filterSilence(from: accumulatedSamples, minDuration: 5.0)
-            let filteredDuration = Double(samplesToTranscribe.count) / sampleRate
-            if filteredDuration < durationSeconds {
-                logger.notice("🎙️ VAD: \(String(format: "%.1f", durationSeconds))s → \(String(format: "%.1f", filteredDuration))s")
-            }
         }
         
-        logger.notice("🎙️ Transcribing \(samplesToTranscribe.count) samples (\(String(format: "%.1f", Double(samplesToTranscribe.count)/16000.0))s)")
+        logger.notice("🎙️ Transcribing \(samplesToTranscribe.count) samples (\(String(format: "%.2f", Double(samplesToTranscribe.count)/16000.0))s)")
         
         let result = await transcribeSamples(samplesToTranscribe) ?? ""
-        accumulatedSamples = []
+        
+        // Clear sensitive audio data
+        accumulatedSamples.removeAll(keepingCapacity: true)
         
         if !result.isEmpty {
             logger.notice("🎙️ Result: \(result.prefix(50))...")
@@ -152,14 +159,20 @@ final class StreamingTranscriptionManager: ObservableObject {
     /// Add audio samples from recorder (called from audio callback)
     func addSamples(_ samples: [Float]) {
         guard isCollecting || isStreaming else { return }
+        guard !samples.isEmpty else { return }
         
-        Task { @MainActor in
-            if isStreaming {
-                if accumulatedSamples.count < maxSamples {
-                    accumulatedSamples.append(contentsOf: samples)
-                }
-            } else if earlySamples.count < maxEarlySamples {
-                earlySamples.append(contentsOf: samples)
+        // Direct append on MainActor (already on MainActor due to class annotation)
+        if isStreaming {
+            let remaining = maxSamples - accumulatedSamples.count
+            if remaining > 0 {
+                let toAdd = min(samples.count, remaining)
+                accumulatedSamples.append(contentsOf: samples.prefix(toAdd))
+            }
+        } else {
+            let remaining = maxEarlySamples - earlySamples.count
+            if remaining > 0 {
+                let toAdd = min(samples.count, remaining)
+                earlySamples.append(contentsOf: samples.prefix(toAdd))
             }
         }
     }
@@ -167,8 +180,8 @@ final class StreamingTranscriptionManager: ObservableObject {
     /// Stop collecting (cleanup on recording failure)
     func stopCollecting() {
         isCollecting = false
-        earlySamples = []
-        accumulatedSamples = []
+        earlySamples.removeAll(keepingCapacity: true)
+        accumulatedSamples.removeAll(keepingCapacity: true)
     }
     
     /// Background streaming loop
@@ -194,23 +207,34 @@ final class StreamingTranscriptionManager: ObservableObject {
             let streaming = await MainActor.run { isStreaming }
             guard streaming else { break }
             
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
             
             let stillStreaming = await MainActor.run { isStreaming }
             guard stillStreaming else { break }
             
+            // Backpressure: skip if previous transcription still running
+            let busy = await MainActor.run { isTranscribing }
+            if busy { continue }
+            
+            // Check sample count without copying array
+            let count = await MainActor.run { accumulatedSamples.count }
+            guard count >= 8000 else { continue }
+            
+            // Only copy when we need to transcribe
             let currentSamples = await MainActor.run { Array(accumulatedSamples) }
             
-            if currentSamples.count >= 8000 {
-                if let result = await transcribeSamples(currentSamples) {
-                    await MainActor.run { self.partialTranscript = result }
-                }
+            await MainActor.run { isTranscribing = true }
+            if let result = await transcribeSamples(currentSamples) {
+                await MainActor.run { self.partialTranscript = result }
             }
+            await MainActor.run { isTranscribing = false }
         }
     }
     
     /// Transcribe samples using whisper or parakeet
     private func transcribeSamples(_ samples: [Float]) async -> String? {
+        guard !samples.isEmpty else { return nil }
+        
         if let parakeet = parakeetService, parakeet.isLoaded {
             return try? await parakeet.transcribeSamples(samples)
         }
