@@ -2,17 +2,30 @@ import Foundation
 import NaturalLanguage
 
 struct WhisperTextFormatter {
+    private static let TARGET_WORD_COUNT = 50
+    private static let MAX_SENTENCES_PER_CHUNK = 4
+    private static let MIN_WORDS_FOR_SIGNIFICANT_SENTENCE = 4
+    private static let SHORT_TEXT_THRESHOLD = 150 // Skip complex formatting for short text
+    
     static func format(_ text: String) -> String {
-        let TARGET_WORD_COUNT = 50
-        let MAX_SENTENCES_PER_CHUNK = 4
-        let MIN_WORDS_FOR_SIGNIFICANT_SENTENCE = 4
-
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // Fast path: skip complex formatting for short text
+        if trimmed.count < SHORT_TEXT_THRESHOLD {
+            return trimmed
+        }
+        
+        return formatLongText(trimmed)
+    }
+    
+    private static func formatLongText(_ text: String) -> String {
         var finalFormattedText = ""
         
-        // Attempt to detect the language of the input text
+        // Detect language once
         let detectedLanguage = NLLanguageRecognizer.dominantLanguage(for: text)
-        let tokenizerLanguage = detectedLanguage ?? .english // Fallback to English if detection fails
+        let tokenizerLanguage = detectedLanguage ?? .english
         
+        // Reuse tokenizer
         let sentenceTokenizer = NLTokenizer(unit: .sentence)
         sentenceTokenizer.string = text
         sentenceTokenizer.setLanguage(tokenizerLanguage)

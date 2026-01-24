@@ -125,6 +125,15 @@ class Recorder: NSObject, ObservableObject {
 
         do {
             let coreAudioRecorder = CoreAudioRecorder()
+            
+            // Start collecting samples immediately (before model loads)
+            await StreamingTranscriptionManager.shared.startCollecting()
+            
+            // Set up streaming callback for real-time transcription
+            coreAudioRecorder.streamingCallback = { samples in
+                StreamingTranscriptionManager.shared.addSamples(samples)
+            }
+            
             recorder = coreAudioRecorder
 
             try coreAudioRecorder.startRecording(toOutputFile: url, deviceID: deviceID)

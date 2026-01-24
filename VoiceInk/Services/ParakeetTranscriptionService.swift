@@ -94,6 +94,18 @@ class ParakeetTranscriptionService: TranscriptionService {
 
         return result.text
     }
+    
+    /// Transcribe audio samples directly (for streaming)
+    func transcribeSamples(_ samples: [Float]) async throws -> String {
+        guard let asrManager = asrManager else {
+            throw ASRError.notInitialized
+        }
+        let result = try await asrManager.transcribe(samples)
+        return result.text
+    }
+    
+    /// Check if model is loaded
+    var isLoaded: Bool { asrManager != nil }
 
     private func readAudioSamples(from url: URL) throws -> [Float] {
         // Use memory-mapped file for faster reading

@@ -47,6 +47,9 @@ final class CoreAudioRecorder {
     // Pre-allocated render buffer (to avoid malloc in real-time callback)
     private var renderBuffer: UnsafeMutablePointer<Float32>?
     private var renderBufferSize: UInt32 = 0
+    
+    // Streaming callback for real-time audio processing
+    var streamingCallback: (([Float]) -> Void)?
 
     // MARK: - Initialization
 
@@ -695,6 +698,13 @@ final class CoreAudioRecorder {
         let writeStatus = ExtAudioFileWrite(file, outputFrameCount, &outputBufferList)
         if writeStatus != noErr {
             logger.error("🎙️ ExtAudioFileWrite failed with status: \(writeStatus)")
+        }
+        
+        // Call streaming callback with Float samples for real-time transcription
+        if let callback = streamingCallback {
+            // Convert Int16 to Float directly without intermediate array allocation
+            let floatSamples = (0..<Int(outputFrameCount)).map { Float(outputBuffer[$0]) / 32767.0 }
+            callback(floatSamples)
         }
     }
 

@@ -141,9 +141,18 @@ class WhisperState: NSObject, ObservableObject {
     func toggleRecord(powerModeId: UUID? = nil) async {
         if recordingState == .recording {
             await recorder.stopRecording()
+            
+            // Get streaming result - valid for both Whisper and Parakeet
+            let useStreaming = UserDefaults.standard.object(forKey: "UseStreamingTranscription") as? Bool ?? true
+            let streamingResult = useStreaming ? await StreamingTranscriptionManager.shared.stopStreaming() : ""
+            
+            // Stop streaming even if not using result
+            if !useStreaming {
+                _ = await StreamingTranscriptionManager.shared.stopStreaming()
+            }
+            
             if let recordedFile {
                 if !shouldCancelRecording {
-                    // Skip duration calculation here - do it later to avoid blocking
                     let transcription = Transcription(
                         text: "",
                         duration: 0,
@@ -151,10 +160,14 @@ class WhisperState: NSObject, ObservableObject {
                         transcriptionStatus: .pending
                     )
                     modelContext.insert(transcription)
-                    // Defer save to after transcription for speed
                     NotificationCenter.default.post(name: .transcriptionCreated, object: transcription)
 
-                    await transcribeAudio(on: transcription)
+                    // Use streaming result if available
+                    if !streamingResult.isEmpty {
+                        await useStreamingResult(streamingResult, on: transcription)
+                    } else {
+                        await transcribeAudio(on: transcription)
+                    }
                 } else {
                     await MainActor.run {
                         recordingState = .idle
@@ -198,7 +211,7 @@ class WhisperState: NSObject, ObservableObject {
                                 await ActiveWindowService.shared.applyConfiguration(powerModeId: powerModeId)
                             }
 
-                            // Load model and capture context in background without blocking
+                            // Load model first, then start streaming with context
                             Task.detached { [weak self] in
                                 guard let self = self else { return }
 
@@ -212,8 +225,13 @@ class WhisperState: NSObject, ObservableObject {
                                             await self.logger.error("❌ Model loading failed: \(error.localizedDescription)")
                                         }
                                     }
+                                    // Start streaming with loaded Whisper context
+                                    await StreamingTranscriptionManager.shared.startStreaming(with: await self.whisperContext)
                                 } else if let parakeetModel = await self.currentTranscriptionModel as? ParakeetModel {
-                                    try? await self.serviceRegistry.parakeetTranscriptionService.loadModel(for: parakeetModel)
+                                    let parakeetService = await self.serviceRegistry.parakeetTranscriptionService
+                                    try? await parakeetService.loadModel(for: parakeetModel)
+                                    // Start streaming with Parakeet
+                                    await StreamingTranscriptionManager.shared.startStreaming(with: parakeetService)
                                 }
 
                                 if let enhancementService = await self.enhancementService {
@@ -237,6 +255,40 @@ class WhisperState: NSObject, ObservableObject {
                 }
             }
         }
+    }
+    
+    /// Use streaming transcription result (already transcribed during recording)
+    private func useStreamingResult(_ text: String, on transcription: Transcription) async {
+        logger.notice("⚡ Using streaming result: \(text.prefix(50), privacy: .public)...")
+        
+        await MainActor.run { recordingState = .transcribing }
+        
+        // Play stop sound
+        Task {
+            await MainActor.run { SoundManager.shared.playStopSound() }
+        }
+        
+        var finalText = TranscriptionOutputFilter.filter(text)
+        finalText = finalText.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        if UserDefaults.standard.object(forKey: "IsTextFormattingEnabled") as? Bool ?? true {
+            finalText = WhisperTextFormatter.format(finalText)
+        }
+        finalText = WordReplacementService.shared.applyReplacements(to: finalText, using: modelContext)
+        
+        transcription.text = finalText
+        transcription.transcriptionModelName = currentTranscriptionModel?.displayName
+        transcription.transcriptionStatus = TranscriptionStatus.completed.rawValue
+        try? modelContext.save()
+        
+        NotificationCenter.default.post(name: .transcriptionCompleted, object: transcription)
+        
+        // Paste result
+        DispatchQueue.main.async {
+            CursorPaster.pasteAtCursor(finalText + " ")
+        }
+        
+        await dismissMiniRecorder()
     }
     
     private func requestRecordPermission(response: @escaping (Bool) -> Void) {
@@ -297,10 +349,10 @@ class WhisperState: NSObject, ObservableObject {
             }
 
             let transcriptionStart = Date()
+            
+            // Direct transcription without timeout (streaming handles speed)
             var text = try await serviceRegistry.transcribe(audioURL: url, model: model)
-            logger.notice("📝 Raw transcript: \(text, privacy: .public)")
             text = TranscriptionOutputFilter.filter(text)
-            logger.notice("📝 Output filter result: \(text, privacy: .public)")
             let transcriptionDuration = Date().timeIntervalSince(transcriptionStart)
 
             let powerModeManager = PowerModeManager.shared
@@ -314,11 +366,9 @@ class WhisperState: NSObject, ObservableObject {
 
             if UserDefaults.standard.object(forKey: "IsTextFormattingEnabled") as? Bool ?? true {
                 text = WhisperTextFormatter.format(text)
-                logger.notice("📝 Formatted transcript: \(text, privacy: .public)")
             }
 
             text = WordReplacementService.shared.applyReplacements(to: text, using: modelContext)
-            logger.notice("📝 WordReplacement: \(text, privacy: .public)")
 
             // Calculate duration in background - don't block pasting
             Task.detached {
