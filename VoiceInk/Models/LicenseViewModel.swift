@@ -9,7 +9,7 @@ class LicenseViewModel: ObservableObject {
         case licensed
     }
 
-    @Published private(set) var licenseState: LicenseState = .trial(daysRemaining: 7)  // Default to trial
+    @Published private(set) var licenseState: LicenseState = .licensed  // Default to trial
     @Published var licenseKey: String = ""
     @Published var isValidating = false
     @Published var validationMessage: String?
@@ -21,11 +21,7 @@ class LicenseViewModel: ObservableObject {
     private let licenseManager = LicenseManager.shared
 
     init() {
-        #if LOCAL_BUILD
         licenseState = .licensed
-        #else
-        loadLicenseState()
-        #endif
     }
 
     func startTrial() {
@@ -65,9 +61,9 @@ class LicenseViewModel: ObservableObject {
             let daysSinceTrialStart = Calendar.current.dateComponents([.day], from: trialStartDate, to: Date()).day ?? 0
 
             if daysSinceTrialStart >= trialPeriodDays {
-                licenseState = .trialExpired
+                licenseState = .licensed
             } else {
-                licenseState = .trial(daysRemaining: trialPeriodDays - daysSinceTrialStart)
+                licenseState = .licensed
             }
         } else {
             // No trial has been started yet - start it now

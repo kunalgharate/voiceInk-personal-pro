@@ -146,7 +146,9 @@ extension WhisperState {
     }
     
     @objc func handleLicenseStatusChanged() {
-        self.licenseViewModel = LicenseViewModel()
+        Task { @MainActor in
+            self.licenseViewModel.objectWillChange.send()
+        }
     }
     
     @objc func handlePromptChange() {
