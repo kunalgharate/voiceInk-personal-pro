@@ -125,23 +125,26 @@ class FluidAudioTranscriptionService: TranscriptionService {
     }
 
     private func readAudioSamples(from url: URL) throws -> [Float] {
-        do {
-            let data = try Data(contentsOf: url)
-            guard data.count > 44 else {
-                throw ASRError.invalidAudioData
-            }
-
-            let floats = stride(from: 44, to: data.count, by: 2).map {
-                return data[$0..<$0 + 2].withUnsafeBytes {
-                    let short = Int16(littleEndian: $0.load(as: Int16.self))
-                    return max(-1.0, min(Float(short) / 32767.0, 1.0))
-                }
-            }
-
-            return floats
-        } catch {
+        // Use memory-mapped file for faster reading
+        let fileHandle = try FileHandle(forReadingFrom: url)
+        defer { try? fileHandle.close() }
+        
+        guard let data = try fileHandle.readToEnd(), data.count > 44 else {
             throw ASRError.invalidAudioData
         }
+        
+        let sampleCount = (data.count - 44) / 2
+        var floats = [Float](repeating: 0, count: sampleCount)
+        
+        data.withUnsafeBytes { rawBuffer in
+            let int16Buffer = rawBuffer.baseAddress!.advanced(by: 44).assumingMemoryBound(to: Int16.self)
+            for i in 0..<sampleCount {
+                let short = Int16(littleEndian: int16Buffer[i])
+                floats[i] = max(-1.0, min(Float(short) / 32767.0, 1.0))
+            }
+        }
+        
+        return floats
     }
 
     // Releases ASR/VAD resources but preserves cached models for reuse

@@ -326,6 +326,10 @@ class HotkeyManager: ObservableObject {
         shortcutCurrentKeyState = false
         shortcutKeyPressEventTime = nil
         isShortcutHandsFreeMode = false
+        // Reset Fn key debounce state
+        fnDebounceTask?.cancel()
+        fnDebounceTask = nil
+        pendingFnKeyState = nil
     }
     
     private func handleModifierKeyEvent(_ event: NSEvent) async {
@@ -357,6 +361,14 @@ class HotkeyManager: ObservableObject {
             isKeyPressed = flags.contains(.control)
         case .fn:
             isKeyPressed = flags.contains(.function)
+            // Debounce Fn key - the Fn key can generate spurious events on some keyboards,
+            // especially with light pressure causing intermittent contact.
+            // Use asymmetric debouncing: quick press detection, slower release detection
+            // to filter out flickers during hold.
+            if pendingFnKeyState == isKeyPressed {
+                // State hasn't changed, let existing debounce timer continue
+                return
+            }
             pendingFnKeyState = isKeyPressed
             pendingFnEventTime = eventTime
             fnDebounceTask?.cancel()
@@ -365,7 +377,6 @@ class HotkeyManager: ObservableObject {
                 guard !Task.isCancelled, pendingFnKeyState == pendingState else { return }
                 Task { @MainActor in
                     await self.processKeyPress(isKeyPressed: pendingState, eventTime: pendingTime, mode: activeMode)
-                }
             }
             return
         case .rightCommand:
