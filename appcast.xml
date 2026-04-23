@@ -3,27 +3,23 @@
     <channel>
         <title>VoiceInk</title>
         <item>
-            <title>1.70</title>
+            <title>1.74</title>
             <description><![CDATA[
-                <h3>What's New in V 1.70</h3>
+                <h3>What's New in v1.74</h3>
                 <ul>
-                    <li>⚡ Added streaming transcription support (Nova 3, Scribe V2, Soniox V4, and Mistral Real-time)</li>
-                    <li>🔄 Added dictionary sync support across devices</li>
-                    <li>📝 Added live transcript display (only available for notch recorder)</li>
-                    <li>🎵 Added support for AMR, OGG, OGA, Opus, and 3GP audio file formats</li>
-                    <li>✨ Added new Mistral transcription model</li>
-                    <li>✂️ Added configurable filler word removal option</li>
-                    <li>💬 Added prompt picker in transcript history</li>
-                    <li>🧹 Fixed audio cleanup bug</li>
-                    <li>📋 Fixed clipboard issue</li>
-                    <li>🐛 Bug fixes and minor improvements</li>
+                    <li>🤖 xAI Grok speech-to-text support</li>
+                    <li>⚡ Per-model streaming toggle</li>
+                    <li>👁️ Hide live text display for real-time models</li>
+                    <li>⌨️ Customizable enhancement shortcut</li>
+                    <li>🔧 Fixed CPU spike issue</li>
+                    <li>🐛 Bug fixes and improvements</li>
                 </ul>
             ]]></description>
-            <pubDate>Mon, 09 Feb 2026 20:17:47 +0545</pubDate>
-            <sparkle:version>170</sparkle:version>
-            <sparkle:shortVersionString>1.70</sparkle:shortVersionString>
+            <pubDate>Wed, 22 Apr 2026 10:38:42 +0545</pubDate>
+            <sparkle:version>174</sparkle:version>
+            <sparkle:shortVersionString>1.74</sparkle:shortVersionString>
             <sparkle:minimumSystemVersion>14.4</sparkle:minimumSystemVersion>
-            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v1.70/VoiceInk.dmg" length="12572927" type="application/octet-stream" sparkle:edSignature="SlHznVI1jbwOBpAcyipnn19W/jY+fLKlItvRRQI585G6NvQLJgdXosMdISVolU9deE2beUNYzD6rT/VQnRyVDw=="/>
+            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v1.74/VoiceInk.dmg" length="13012106" type="application/octet-stream" sparkle:edSignature="f2LHvL1u0f3eJfDuomjabaTQVTaL1Mn02sMmyY5XRfVNj7h0nqVIS4C/dfukcljmKNyK8a81z5h/xanURJIjDQ=="/>
         </item>
     </channel>
 </rss>

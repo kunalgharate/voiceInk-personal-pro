@@ -48,10 +48,11 @@ class SystemInfoService {
         CLIPBOARD & PASTE SETTINGS:
         Restore Clipboard After Paste: \(UserDefaults.standard.bool(forKey: "restoreClipboardAfterPaste"))
         Clipboard Restore Delay: \(UserDefaults.standard.double(forKey: "clipboardRestoreDelay"))s
+        Use AppleScript Paste: \(UserDefaults.standard.bool(forKey: "useAppleScriptPaste"))
 
         POWER MODE:
         Power Mode Enabled: \(UserDefaults.standard.bool(forKey: "powerModeUIFlag"))
-        Auto-Restore Enabled: \(UserDefaults.standard.bool(forKey: "powerModeAutoRestoreEnabled"))
+        Persist Configured Preferences: \(UserDefaults.standard.bool(forKey: "powerModePersistConfig"))
 
         DATA CLEANUP SETTINGS:
         Auto-Delete Transcriptions: \(UserDefaults.standard.bool(forKey: "IsTranscriptionCleanupEnabled"))
@@ -151,7 +152,7 @@ class SystemInfoService {
 
     private func getCurrentTranscriptionModel() -> String {
         if let modelName = UserDefaults.standard.string(forKey: "CurrentTranscriptionModel") {
-            if let model = PredefinedModels.models.first(where: { $0.name == modelName }) {
+            if let model = TranscriptionModelRegistry.models.first(where: { $0.name == modelName }) {
                 return model.displayName
             }
             return modelName

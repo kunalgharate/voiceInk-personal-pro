@@ -28,7 +28,11 @@ class CursorPaster {
         ClipboardManager.setClipboard(text, transient: shouldRestoreClipboard)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
-            pasteFromClipboard()
+            if UserDefaults.standard.bool(forKey: "useAppleScriptPaste") {
+                pasteUsingAppleScript()
+            } else {
+                pasteFromClipboard()
+            }
         }
 
         if shouldRestoreClipboard {
@@ -46,115 +50,84 @@ class CursorPaster {
         }
     }
 
-    // MARK: - Clipboard paste with input-source fix
+    // MARK: - AppleScript paste
 
-    /// Paste from the clipboard using CGEvent, temporarily switching to a
-    /// QWERTY-compatible input source so that virtual key 0x09 is reliably
-    /// interpreted as "V" for Cmd+V.
+    // "X – QWERTY ⌘" layouts remap to QWERTY when Command is held, so keystroke "v" resolves
+    // the wrong key code. key code 9 (physical V) bypasses layout translation for those layouts.
+    private static func makeScript(_ source: String) -> NSAppleScript? {
+        let script = NSAppleScript(source: source)
+        var error: NSDictionary?
+        script?.compileAndReturnError(&error)
+        return script
+    }
+
+    private static let pasteScriptKeystroke = makeScript("tell application \"System Events\" to keystroke \"v\" using command down")
+    private static let pasteScriptKeyCode   = makeScript("tell application \"System Events\" to key code 9 using command down")
+
+    private static var layoutSwitchesToQWERTYOnCommand: Bool {
+        let source = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
+        guard let nameRef = TISGetInputSourceProperty(source, kTISPropertyLocalizedName) else { return false }
+        return (Unmanaged<CFString>.fromOpaque(nameRef).takeUnretainedValue() as String).hasSuffix("⌘")
+    }
+
+    private static func pasteUsingAppleScript() {
+        let script = layoutSwitchesToQWERTYOnCommand ? pasteScriptKeyCode : pasteScriptKeystroke
+        var error: NSDictionary?
+        script?.executeAndReturnError(&error)
+        if let error = error {
+            logger.error("AppleScript paste failed: \(error, privacy: .public)")
+        }
+    }
+
+    // MARK: - CGEvent paste
+
+    // Posts Cmd+V via CGEvent without modifying the active input source.
     private static func pasteFromClipboard() {
         guard AXIsProcessTrusted() else {
             logger.error("Accessibility not trusted — cannot paste")
             return
         }
 
-        guard let currentSource = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else {
-            logger.error("TISCopyCurrentKeyboardInputSource returned nil")
-            return
-        }
-        let currentID = sourceID(for: currentSource) ?? "unknown"
-        let switched = switchToQWERTYInputSource()
-        logger.notice("Pasting: inputSource=\(currentID, privacy: .public), switched=\(switched)")
+        let source = CGEventSource(stateID: .privateState)
 
-        // If we switched input sources, wait 30 ms for the system to apply it
-        // before posting the CGEvents. Use asyncAfter instead of usleep so the
-        // main thread is not blocked.
-        let eventDelay: TimeInterval = switched ? 0.03 : 0.0
-        DispatchQueue.main.asyncAfter(deadline: .now() + eventDelay) {
-            let source = CGEventSource(stateID: .privateState)
+        let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true)
+        let vDown   = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
+        let vUp     = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
+        let cmdUp   = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)
 
-            let cmdDown = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: true)
-            let vDown   = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: true)
-            let vUp     = CGEvent(keyboardEventSource: source, virtualKey: 0x09, keyDown: false)
-            let cmdUp   = CGEvent(keyboardEventSource: source, virtualKey: 0x37, keyDown: false)
+        cmdDown?.flags = .maskCommand
+        vDown?.flags   = .maskCommand
+        vUp?.flags     = .maskCommand
 
-            cmdDown?.flags = .maskCommand
-            vDown?.flags   = .maskCommand
-            vUp?.flags     = .maskCommand
+        cmdDown?.post(tap: .cghidEventTap)
+        vDown?.post(tap: .cghidEventTap)
+        vUp?.post(tap: .cghidEventTap)
+        cmdUp?.post(tap: .cghidEventTap)
 
-            cmdDown?.post(tap: .cghidEventTap)
-            vDown?.post(tap: .cghidEventTap)
-            vUp?.post(tap: .cghidEventTap)
-            cmdUp?.post(tap: .cghidEventTap)
-
-            logger.notice("CGEvents posted for Cmd+V")
-
-            if switched {
-                // Restore the original input source after a short delay so the
-                // posted events are processed under ABC/US first.
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                    TISSelectInputSource(currentSource)
-                    logger.notice("Restored input source to \(currentID, privacy: .public)")
-                }
-            }
-        }
+        logger.notice("CGEvents posted for Cmd+V")
     }
 
-    /// Try to switch to ABC or US QWERTY. Returns true if the switch was made.
-    private static func switchToQWERTYInputSource() -> Bool {
-        guard let currentSourceRef = TISCopyCurrentKeyboardInputSource()?.takeRetainedValue() else { return false }
-        if let currentID = sourceID(for: currentSourceRef), isQWERTY(currentID) {
-            return false // already QWERTY, nothing to do
-        }
+    // MARK: - Auto Send Keys
 
-        let criteria = [kTISPropertyInputSourceCategory: kTISCategoryKeyboardInputSource] as CFDictionary
-        guard let list = TISCreateInputSourceList(criteria, false)?.takeRetainedValue() as? [TISInputSource] else {
-            logger.error("Failed to list input sources")
-            return false
-        }
-
-        // Prefer ABC, then US.
-        let preferred = ["com.apple.keylayout.ABC", "com.apple.keylayout.US"]
-        for targetID in preferred {
-            if let match = list.first(where: { sourceID(for: $0) == targetID }) {
-                let status = TISSelectInputSource(match)
-                if status == noErr {
-                    logger.notice("Switched input source to \(targetID, privacy: .public)")
-                    return true
-                } else {
-                    logger.error("TISSelectInputSource failed with status \(status)")
-                }
-            }
-        }
-
-        logger.error("No QWERTY input source found to switch to")
-        return false
-    }
-
-    private static func sourceID(for source: TISInputSource) -> String? {
-        guard let raw = TISGetInputSourceProperty(source, kTISPropertyInputSourceID) else { return nil }
-        return Unmanaged<CFString>.fromOpaque(raw).takeUnretainedValue() as String
-    }
-
-    private static func isQWERTY(_ id: String) -> Bool {
-        let qwertyIDs: Set<String> = [
-            "com.apple.keylayout.ABC",
-            "com.apple.keylayout.US",
-            "com.apple.keylayout.USInternational-PC",
-            "com.apple.keylayout.British",
-            "com.apple.keylayout.Australian",
-            "com.apple.keylayout.Canadian",
-        ]
-        return qwertyIDs.contains(id)
-    }
-
-    // MARK: - Enter key
-
-    /// Simulate pressing the Return / Enter key.
-    static func pressEnter() {
+    static func performAutoSend(_ key: AutoSendKey) {
+        guard key.isEnabled else { return }
         guard AXIsProcessTrusted() else { return }
+
         let source = CGEventSource(stateID: .privateState)
         let enterDown = CGEvent(keyboardEventSource: source, virtualKey: 0x24, keyDown: true)
         let enterUp   = CGEvent(keyboardEventSource: source, virtualKey: 0x24, keyDown: false)
+
+        switch key {
+        case .none: return
+        case .enter: break
+        case .shiftEnter:
+            enterDown?.flags = .maskShift
+            enterUp?.flags   = .maskShift
+        case .commandEnter:
+            enterDown?.flags = .maskCommand
+            enterUp?.flags   = .maskCommand
+        }
+
         enterDown?.post(tap: .cghidEventTap)
         enterUp?.post(tap: .cghidEventTap)
     }

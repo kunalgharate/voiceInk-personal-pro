@@ -22,7 +22,7 @@ final class KeychainService {
     @discardableResult
     func save(_ value: String, forKey key: String, syncable: Bool = true) -> Bool {
         guard let data = value.data(using: .utf8) else {
-            logger.error("Failed to convert value to data for key: \(key)")
+            logger.error("Failed to convert value to data for key: \(key, privacy: .public)")
             return false
         }
         return save(data: data, forKey: key, syncable: syncable)
