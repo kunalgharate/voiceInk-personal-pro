@@ -198,12 +198,14 @@ final class KeychainService {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: key,
-            kSecUseDataProtectionKeychain as String: true,
         ]
 
+        #if !LOCAL_BUILD
+        query[kSecUseDataProtectionKeychain as String] = true
         if syncable {
             query[kSecAttrSynchronizable as String] = kCFBooleanTrue
         }
+        #endif
 
         return query
     }

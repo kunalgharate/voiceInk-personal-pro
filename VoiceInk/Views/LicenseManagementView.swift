@@ -319,8 +319,6 @@ struct LicenseManagementView: View {
 
     private var trialSummary: String {
         switch licenseViewModel.licenseState {
-        case .unlicensed:
-            return String(localized: "License required")
         case .licensed:
             return String(localized: "Licensed")
         case .trial(let daysRemaining):
