@@ -3,22 +3,19 @@
     <channel>
         <title>VoiceInk</title>
         <item>
-            <title>2.13</title>
-            <pubDate>Thu, 27 Aug 2026 22:54:28 +0545</pubDate>
-            <sparkle:version>213</sparkle:version>
-            <sparkle:shortVersionString>2.13</sparkle:shortVersionString>
-            <sparkle:minimumSystemVersion>14.4</sparkle:minimumSystemVersion>
-            <description><![CDATA[<h3>What's New in VoiceInk 2.13</h3>
+            <title>2.22</title>
+            <pubDate>Thu, 01 Oct 2026 13:27:50 +0545</pubDate>
+            <sparkle:version>222</sparkle:version>
+            <sparkle:shortVersionString>2.22</sparkle:shortVersionString>
+            <sparkle:minimumSystemVersion>15.0</sparkle:minimumSystemVersion>
+            <description><![CDATA[<h3>What's New in VoiceInk 2.22</h3>
 <ul>
-  <li>✨ Added Gemini 3.5 Transcribe support</li>
-  <li>✨ Added SenseVoice Small support</li>
-  <li>⌨️ Improved cancellation handling</li>
-  <li>🎙️ Fixed the recorder panel issue — by @AlexSarbu</li>
-  <li>🎧 Fixed microphone routing issue in clamshell mode</li>
-  <li>🐛 Minor bug fixes and improvements</li>
+  <li>Improved diagnostic logs for local Parakeet transcription.</li>
+  <li>Added status updates for transcription operations that take longer than expected.</li>
+  <li>Diagnostic exports include the last 30 minutes and available FluidAudio logs.</li>
 </ul>
 ]]></description>
-            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v2.13/VoiceInk.dmg" length="50174451" type="application/octet-stream" sparkle:edSignature="EZyhSWJgi1u+VLfXBrlEci/V9T4bolvqsBIO2+1vHICIdb5gnq4IwSkk0FN9wagAm+f3v2UfIBEfQSSDC8OhAA=="/>
+            <enclosure url="https://github.com/Beingpax/VoiceInk/releases/download/v2.22/VoiceInk.dmg" length="51115278" type="application/octet-stream" sparkle:edSignature="J6Eq1mM3am4sxRq5FoOO+itPB76hguVk9pncn5Nubw7qFpL6QgW5X7YNdlwgiAm/gmrfs3lyPnSSntEi95siCg=="/>
         </item>
     </channel>
 </rss>

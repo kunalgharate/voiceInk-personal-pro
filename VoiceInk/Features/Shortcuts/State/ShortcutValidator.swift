@@ -4,8 +4,19 @@ import Carbon.HIToolbox
 enum ShortcutValidationError: Equatable {
     case plainKeyRequiresModifier
     case shiftTypingKeyRequiresAdditionalModifier
+    case unsupportedMouseButton
     case reservedBySystem
     case alreadyUsedBy(String)
+
+    var diagnosticReason: String {
+        switch self {
+        case .plainKeyRequiresModifier: return "modifier-required"
+        case .shiftTypingKeyRequiresAdditionalModifier: return "additional-modifier-required"
+        case .unsupportedMouseButton: return "unsupported-mouse-button"
+        case .reservedBySystem: return "system-reserved"
+        case .alreadyUsedBy: return "shortcut-conflict"
+        }
+    }
 
     func notificationTitle(for shortcut: Shortcut) -> String {
         switch self {
@@ -13,6 +24,8 @@ enum ShortcutValidationError: Equatable {
             return String(format: String(localized: "Shortcut not allowed: %@"), shortcut.displayString)
         case .shiftTypingKeyRequiresAdditionalModifier:
             return String(format: String(localized: "Shortcut not allowed: %@"), shortcut.displayString)
+        case .unsupportedMouseButton:
+            return String(format: String(localized: "Mouse shortcut not allowed: %@"), shortcut.displayString)
         case .reservedBySystem:
             return String(format: String(localized: "Shortcut reserved by macOS: %@"), shortcut.displayString)
         case .alreadyUsedBy(let actionName):
@@ -23,7 +36,7 @@ enum ShortcutValidationError: Equatable {
 
 enum ShortcutValidator {
     static func validationError(for shortcut: Shortcut, action: ShortcutAction) -> ShortcutValidationError? {
-        if let error = userRecordingShortcutError(for: shortcut, action: action) {
+        if let error = inputShapeError(for: shortcut, action: action) {
             return error
         }
 
@@ -42,7 +55,7 @@ enum ShortcutValidator {
         return nil
     }
 
-    private static func userRecordingShortcutError(
+    static func inputShapeError(
         for shortcut: Shortcut,
         action: ShortcutAction
     ) -> ShortcutValidationError? {
@@ -72,6 +85,8 @@ enum ShortcutValidator {
             }
 
             return nil
+        case .mouseButton:
+            return Shortcut.isSupportedMouseButtonNumber(shortcut.keyCode) ? nil : .unsupportedMouseButton
         }
     }
 
